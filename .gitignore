@@ -1,6 +1,25 @@
 node_modules/
-data/sessions/
-data/state/
-data/screenshots/
+
+# All runtime data — sessions, cookies, state, screenshots
+data/
+
+# Environment and credentials
 .env
+.env.*
+*.env
+
+# Screenshots
+*.png
+
+# Logs
 *.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo

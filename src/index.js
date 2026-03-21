@@ -8,14 +8,18 @@ import { sign, getAddress } from './primitives/sign.js';
 import { persist, recall, forget, listKeys } from './primitives/persist.js';
 import { observe } from './primitives/observe.js';
 import { pay } from './primitives/pay.js';
+import { see } from './primitives/see.js';
+import { detectCaptcha, solveCaptcha } from './primitives/captcha.js';
+import { importCookies, getExportInstructions } from './utils/cookie-import.js';
 import { Router } from './router/router.js';
 import pool from './browser.js';
 
 /**
  * Reach — Agent Web Interface
  *
- * 7 primitives: fetch, act, authenticate, sign, persist, observe, pay
+ * 9 primitives: fetch, act, authenticate, sign, persist, observe, pay, see, captcha
  * 1 router: picks the optimal interaction layer for each task
+ * Utilities: cookie import, export instructions
  *
  * Usage:
  *   import { Reach } from './src/index.js';
@@ -61,6 +65,32 @@ class Reach {
 
   forget(key) {
     return forget(key);
+  }
+
+  // --- Vision ---
+
+  async see(url, question) {
+    return see(url, question);
+  }
+
+  // --- CAPTCHA ---
+
+  async detectCaptcha(page) {
+    return detectCaptcha(page);
+  }
+
+  async solveCaptcha(page) {
+    return solveCaptcha(page);
+  }
+
+  // --- Cookie Import ---
+
+  importCookies(service, filePath, format = 'auto') {
+    return importCookies(service, filePath, format);
+  }
+
+  getExportInstructions(browser = 'chrome') {
+    return getExportInstructions(browser);
   }
 
   // --- Convenience ---
@@ -134,5 +164,7 @@ export { Reach };
 export default Reach;
 
 // Also export individual primitives for direct use
-export { fetch, act, authenticate, sign, persist, recall, forget, observe, pay };
+export { fetch, act, authenticate, sign, persist, recall, forget, observe, pay, see };
+export { detectCaptcha, solveCaptcha };
+export { importCookies, getExportInstructions };
 export { getAddress, getSession, listSessions, listKeys };

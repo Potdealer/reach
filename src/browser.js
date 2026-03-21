@@ -2,6 +2,7 @@ import { chromium } from 'playwright';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { autoSolveCaptcha } from './primitives/captcha.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, '..', 'data');
@@ -76,6 +77,18 @@ class BrowserPool {
   async getPage(domain) {
     const context = await this.getContext(domain);
     const page = await context.newPage();
+
+    // Register CAPTCHA auto-detection on page load
+    page.on('load', async () => {
+      try {
+        // Short delay to let challenge render
+        await page.waitForTimeout(1000).catch(() => {});
+        await autoSolveCaptcha(page);
+      } catch {
+        // Non-blocking — don't let CAPTCHA detection crash page loads
+      }
+    });
+
     return page;
   }
 

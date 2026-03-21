@@ -125,6 +125,50 @@ async function main() {
         break;
       }
 
+      case 'see': {
+        const url = args[0];
+        if (!url) { console.error('Usage: reach see <url> ["question"]'); process.exit(1); }
+        const question = args.slice(1).join(' ') || null;
+        const result = await reach.see(url, question);
+        console.log(`\nTitle: ${result.title}`);
+        console.log(`URL: ${result.url}`);
+        console.log(`Screenshot: ${result.screenshot}`);
+        console.log(`Interactive elements: ${result.elements.length}`);
+        if (question) console.log(`Question: ${question}`);
+        console.log('\n--- Accessibility Tree ---');
+        console.log(result.description);
+        console.log('\n--- Interactive Elements ---');
+        for (const el of result.elements.slice(0, 30)) {
+          const label = el.text || '(unlabeled)';
+          const href = el.href ? ` → ${el.href}` : '';
+          console.log(`  [${el.tag}${el.type ? ':' + el.type : ''}] ${label}${href}`);
+        }
+        if (result.elements.length > 30) {
+          console.log(`  ... and ${result.elements.length - 30} more`);
+        }
+        break;
+      }
+
+      case 'import-cookies': {
+        const service = args[0];
+        const filePath = args[1];
+        const format = args[2] || 'auto';
+        if (!service || !filePath) {
+          console.error('Usage: reach import-cookies <service> <file-path> [format]');
+          console.error('Formats: auto, playwright, editthiscookie, netscape');
+          process.exit(1);
+        }
+        const result = reach.importCookies(service, filePath, format);
+        console.log(JSON.stringify(result, null, 2));
+        break;
+      }
+
+      case 'export-instructions': {
+        const browser = args[0] || 'chrome';
+        console.log(reach.getExportInstructions(browser));
+        break;
+      }
+
       default:
         console.error(`Unknown command: ${command}`);
         printHelp();
@@ -176,6 +220,15 @@ Commands:
 
   learn <url> [--needsJS] [--needsAuth] [--api <endpoint>]
     Teach the router about a site
+
+  see <url> ["question"]
+    Take screenshot + extract page structure for visual reasoning
+
+  import-cookies <service> <file-path> [format]
+    Import cookies from browser export (formats: auto, playwright, editthiscookie, netscape)
+
+  export-instructions [chrome|firefox|manual]
+    Print instructions for exporting cookies from a browser
 `);
 }
 
