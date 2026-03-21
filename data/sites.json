@@ -1,0 +1,28 @@
+{
+  "cantina.xyz": {
+    "needsAuth": true,
+    "needsJS": true,
+    "loginUrl": "https://cantina.xyz/",
+    "lastUpdated": "2026-03-21T00:00:00.000Z"
+  },
+  "api.github.com": {
+    "api": {
+      "endpoint": "https://api.github.com",
+      "headers": {
+        "Accept": "application/vnd.github.v3+json"
+      }
+    },
+    "lastUpdated": "2026-03-21T00:00:00.000Z"
+  },
+  "api.coingecko.com": {
+    "api": {
+      "endpoint": "https://api.coingecko.com/api/v3",
+      "headers": {}
+    },
+    "lastUpdated": "2026-03-21T00:00:00.000Z"
+  },
+  "spa-app.example.com": {
+    "needsJS": true,
+    "lastUpdated": "2026-03-21T22:27:30.240Z"
+  }
+}
