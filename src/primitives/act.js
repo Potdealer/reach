@@ -63,7 +63,7 @@ async function doClick(page, params) {
   }
 
   if (text) {
-    await page.locator(`text=${text}`).first().click();
+    await page.locator(`text=${text}`).filter({ visible: true }).first().click();
     return { clicked: `text="${text}"` };
   }
 
@@ -131,7 +131,7 @@ async function doSubmit(page, params) {
 
   // Click submit button
   const submitSelector = selector || 'button[type="submit"], input[type="submit"], button:has-text("Submit"), button:has-text("Send")';
-  await page.locator(submitSelector).first().click();
+  await page.locator(submitSelector).filter({ visible: true }).first().click();
 
   // Wait for navigation or response
   await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});

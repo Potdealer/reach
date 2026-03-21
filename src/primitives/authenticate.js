@@ -28,8 +28,12 @@ export async function authenticate(service, method, credentials = {}) {
   }
 }
 
+function safeName(service) {
+  return service.replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
 async function authWithCookie(service) {
-  const cookiePath = path.join(SESSIONS_DIR, `cookies-${service}.json`);
+  const cookiePath = path.join(SESSIONS_DIR, `cookies-${safeName(service)}.json`);
 
   if (!fs.existsSync(cookiePath)) {
     return { success: false, method: 'cookie', service, error: 'No saved cookies' };
@@ -71,6 +75,30 @@ async function authWithLogin(service, credentials) {
     console.log(`[auth] Logging into ${service} at ${url}`);
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
 
+    // Step 0: Look for a "Sign in" / "Log in" button and click it if found
+    const signInSelectors = [
+      'a:has-text("Sign in")',
+      'a:has-text("Log in")',
+      'a:has-text("Login")',
+      'a:has-text("Sign In")',
+      'a:has-text("Log In")',
+      'button:has-text("Sign in")',
+      'button:has-text("Log in")',
+      'button:has-text("Login")',
+      'button:has-text("Sign In")',
+      'button:has-text("Log In")',
+    ];
+
+    for (const sel of signInSelectors) {
+      const el = await page.locator(sel).filter({ visible: true }).first();
+      if (await el.count() > 0) {
+        console.log(`[auth] Found sign-in button: ${sel} — clicking`);
+        await el.click();
+        await page.waitForTimeout(3000);
+        break;
+      }
+    }
+
     // Step 1: Find and fill email field
     const emailSelectors = [
       'input[type="email"]',
@@ -99,7 +127,7 @@ async function authWithLogin(service, credentials) {
 
     // Check if password field is already visible (single-page login)
     const pwField = await page.$('input[type="password"]');
-    if (pwField) {
+    if (pwField && await pwField.isVisible()) {
       // Single-page login — fill password and submit
       await pwField.fill(password);
       console.log('[auth] Single-page login — filled password');
@@ -108,10 +136,10 @@ async function authWithLogin(service, credentials) {
       await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
     } else {
       // Two-step login (Auth0 style) — submit email first
+      console.log('[auth] Two-step login — submitting email first');
       await clickSubmit(page);
-      await page.waitForTimeout(2000);
 
-      // Now fill password
+      // Wait for password field to appear (up to 10 seconds)
       const pwSelectors = [
         'input[type="password"]',
         'input[name="password"]',
@@ -119,14 +147,18 @@ async function authWithLogin(service, credentials) {
       ];
 
       let pwFilled = false;
-      for (const sel of pwSelectors) {
-        const el = await page.$(sel);
-        if (el) {
-          await el.fill(password);
-          pwFilled = true;
-          console.log(`[auth] Filled password with selector: ${sel}`);
-          break;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        await page.waitForTimeout(500);
+        for (const sel of pwSelectors) {
+          const el = await page.$(sel);
+          if (el && await el.isVisible()) {
+            await el.fill(password);
+            pwFilled = true;
+            console.log(`[auth] Filled password with selector: ${sel} (attempt ${attempt + 1})`);
+            break;
+          }
         }
+        if (pwFilled) break;
       }
 
       if (!pwFilled) {
@@ -144,7 +176,7 @@ async function authWithLogin(service, credentials) {
     const context = pool.contexts.get(domain);
     if (context) {
       const cookies = await context.cookies();
-      const cookiePath = path.join(SESSIONS_DIR, `cookies-${service}.json`);
+      const cookiePath = path.join(SESSIONS_DIR, `cookies-${safeName(service)}.json`);
       fs.writeFileSync(cookiePath, JSON.stringify(cookies, null, 2));
       console.log(`[auth] Saved ${cookies.length} cookies for ${service}`);
     }
@@ -161,7 +193,7 @@ async function authWithLogin(service, credentials) {
   } catch (e) {
     // Take screenshot on failure for debugging
     try {
-      await pool.screenshot(page, `auth-fail-${service}`);
+      await pool.screenshot(page, `auth-fail-${safeName(service)}`);
     } catch {}
     return { success: false, method: 'login', service, error: e.message };
   } finally {
@@ -177,7 +209,7 @@ async function authWithApiKey(service, credentials) {
   }
 
   // Store API key session info
-  const sessionPath = path.join(SESSIONS_DIR, `apikey-${service}.json`);
+  const sessionPath = path.join(SESSIONS_DIR, `apikey-${safeName(service)}.json`);
   const session = {
     type: 'apikey',
     service,
@@ -228,14 +260,14 @@ async function clickSubmit(page) {
  */
 export function getSession(service) {
   // Check for cookie session
-  const cookiePath = path.join(SESSIONS_DIR, `cookies-${service}.json`);
+  const cookiePath = path.join(SESSIONS_DIR, `cookies-${safeName(service)}.json`);
   if (fs.existsSync(cookiePath)) {
     const cookies = JSON.parse(fs.readFileSync(cookiePath, 'utf-8'));
     return { type: 'cookie', service, cookieCount: cookies.length };
   }
 
   // Check for API key session
-  const apikeyPath = path.join(SESSIONS_DIR, `apikey-${service}.json`);
+  const apikeyPath = path.join(SESSIONS_DIR, `apikey-${safeName(service)}.json`);
   if (fs.existsSync(apikeyPath)) {
     const session = JSON.parse(fs.readFileSync(apikeyPath, 'utf-8'));
     return { type: 'apikey', service, headerName: session.headerName };
