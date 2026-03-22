@@ -1,10 +1,11 @@
 {
   "name": "reach",
   "version": "0.1.0",
-  "description": "Agent web interface — 7 primitives, 1 intelligent router",
+  "description": "Agent web interface — 9 primitives, 4 site skills, 1 intelligent router, MCP server",
   "main": "src/index.js",
   "bin": {
-    "reach": "src/cli.js"
+    "reach": "src/cli.js",
+    "reach-mcp": "src/mcp.js"
   },
   "scripts": {
     "test": "node test/test.js",

@@ -73,7 +73,8 @@ async function authWithLogin(service, credentials) {
 
   try {
     console.log(`[auth] Logging into ${service} at ${url}`);
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForTimeout(3000); // Let JS render
 
     // Step 0: Look for a "Sign in" / "Log in" button and click it if found
     const signInSelectors = [
@@ -242,9 +243,9 @@ async function clickSubmit(page) {
   ];
 
   for (const sel of submitSelectors) {
-    const el = await page.$(sel);
-    if (el) {
-      await el.click();
+    const loc = page.locator(sel).filter({ visible: true }).first();
+    if (await loc.count() > 0) {
+      await loc.click();
       console.log(`[auth] Clicked submit: ${sel}`);
       return;
     }

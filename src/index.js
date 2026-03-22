@@ -10,16 +10,25 @@ import { observe } from './primitives/observe.js';
 import { pay } from './primitives/pay.js';
 import { see } from './primitives/see.js';
 import { detectCaptcha, solveCaptcha } from './primitives/captcha.js';
+import { sendEmail } from './primitives/email.js';
 import { importCookies, getExportInstructions } from './utils/cookie-import.js';
 import { Router } from './router/router.js';
 import pool from './browser.js';
 
+// Site skills
+import code4rena from './sites/code4rena.js';
+import upwork from './sites/upwork.js';
+import github from './sites/github.js';
+import immunefi from './sites/immunefi.js';
+
 /**
  * Reach — Agent Web Interface
  *
- * 9 primitives: fetch, act, authenticate, sign, persist, observe, pay, see, captcha
+ * 9 primitives: fetch, act, authenticate, sign, persist, observe, pay, see, email
  * 1 router: picks the optimal interaction layer for each task
+ * 4 site skills: code4rena, upwork, github, immunefi
  * Utilities: cookie import, export instructions
+ * MCP server: src/mcp.js (run separately)
  *
  * Usage:
  *   import { Reach } from './src/index.js';
@@ -35,6 +44,14 @@ class Reach {
     if (options.wallet?.privateKey) {
       process.env.PRIVATE_KEY = options.wallet.privateKey;
     }
+
+    // Site skills
+    this.sites = {
+      code4rena,
+      upwork,
+      github,
+      immunefi,
+    };
   }
 
   // --- Primitives ---
@@ -71,6 +88,12 @@ class Reach {
 
   async see(url, question) {
     return see(url, question);
+  }
+
+  // --- Email ---
+
+  async email(to, subject, body, options = {}) {
+    return sendEmail(to, subject, body, options);
   }
 
   // --- CAPTCHA ---
@@ -165,6 +188,10 @@ export default Reach;
 
 // Also export individual primitives for direct use
 export { fetch, act, authenticate, sign, persist, recall, forget, observe, pay, see };
+export { sendEmail } from './primitives/email.js';
 export { detectCaptcha, solveCaptcha };
 export { importCookies, getExportInstructions };
 export { getAddress, getSession, listSessions, listKeys };
+
+// Export site skills
+export { code4rena, upwork, github, immunefi };
