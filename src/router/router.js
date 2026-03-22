@@ -79,9 +79,9 @@ class Router {
       case 'store':
         return { primitive: 'persist', method: params.value !== undefined ? 'persist' : 'recall', layer: 'local', params, reason: 'Local storage' };
       case 'monitor':
-        return { primitive: 'observe', method: 'observe', layer: 'stub', params, reason: 'Monitoring not yet implemented' };
+        return { primitive: 'observe', method: 'observe', layer: 'network', params, reason: 'Monitoring via poll, websocket, webhook, or contract events' };
       case 'pay':
-        return { primitive: 'pay', method: 'pay', layer: 'stub', params, reason: 'Payments not yet implemented' };
+        return { primitive: 'pay', method: 'pay', layer: 'crypto', params, reason: 'ETH/ERC-20 transfer or x402 payment' };
       default:
         return this.routeDefault(url, site, params);
     }

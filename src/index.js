@@ -12,6 +12,10 @@ import { see } from './primitives/see.js';
 import { detectCaptcha, solveCaptcha } from './primitives/captcha.js';
 import { sendEmail } from './primitives/email.js';
 import { importCookies, getExportInstructions } from './utils/cookie-import.js';
+import { SessionRecorder, loadRecording, listRecordings, formatTimeline } from './utils/recorder.js';
+import { saveForm, recallForm, getAutoFillData, autoFillPage, extractFormFields, forgetForm, listForms } from './utils/form-memory.js';
+import { WebhookServer } from './utils/webhook-server.js';
+import { parseCommand, executeCommand } from './natural.js';
 import { Router } from './router/router.js';
 import pool from './browser.js';
 
@@ -27,7 +31,7 @@ import immunefi from './sites/immunefi.js';
  * 9 primitives: fetch, act, authenticate, sign, persist, observe, pay, see, email
  * 1 router: picks the optimal interaction layer for each task
  * 4 site skills: code4rena, upwork, github, immunefi
- * Utilities: cookie import, export instructions
+ * Utilities: cookie import, session recording, form memory, webhook server, natural language
  * MCP server: src/mcp.js (run separately)
  *
  * Usage:
@@ -40,9 +44,16 @@ class Reach {
   constructor(options = {}) {
     this.router = new Router();
     this.options = options;
+    this.recorder = null;
 
     if (options.wallet?.privateKey) {
       process.env.PRIVATE_KEY = options.wallet.privateKey;
+    }
+
+    // Auto-start recording if requested
+    if (options.record) {
+      this.recorder = new SessionRecorder({ name: options.recordName });
+      this.recorder.start();
     }
 
     // Site skills
@@ -57,43 +68,77 @@ class Reach {
   // --- Primitives ---
 
   async fetch(url, options = {}) {
-    return fetch(url, options);
+    const result = await fetch(url, options);
+    this.recorder?.record('fetch', { url, ...options }, result);
+    return result;
   }
 
   async act(url, action, params = {}) {
-    return act(url, action, params);
+    const result = await act(url, action, params);
+    this.recorder?.record('act', { url, action, ...params }, result);
+    return result;
   }
 
   async authenticate(service, method, credentials = {}) {
-    return authenticate(service, method, credentials);
+    const result = await authenticate(service, method, credentials);
+    this.recorder?.record('authenticate', { service, method }, result);
+    return result;
   }
 
   async sign(payload, options = {}) {
-    return sign(payload, options);
+    const result = await sign(payload, options);
+    this.recorder?.record('sign', { type: options.type || 'message' }, result);
+    return result;
   }
 
   persist(key, value, options = {}) {
-    return persist(key, value, options);
+    const result = persist(key, value, options);
+    this.recorder?.record('persist', { key }, result);
+    return result;
   }
 
   recall(key) {
-    return recall(key);
+    const result = recall(key);
+    this.recorder?.record('recall', { key }, result);
+    return result;
   }
 
   forget(key) {
-    return forget(key);
+    const result = forget(key);
+    this.recorder?.record('forget', { key }, result);
+    return result;
+  }
+
+  // --- Observe ---
+
+  async observe(target, options = {}, callback) {
+    const result = await observe(target, options, callback);
+    this.recorder?.record('observe', { target, method: options.method || 'auto' }, { id: result.id, method: result.method });
+    return result;
+  }
+
+  // --- Pay ---
+
+  async pay(recipient, amount, options = {}) {
+    const result = await pay(recipient, amount, options);
+    this.recorder?.record('pay', { recipient, amount, token: options.token }, result);
+    return result;
   }
 
   // --- Vision ---
 
   async see(url, question) {
-    return see(url, question);
+    const result = await see(url, question);
+    this.recorder?.record('see', { url, question }, result);
+    return result;
   }
 
   // --- Email ---
 
   async email(to, subject, body, options = {}) {
-    return sendEmail(to, subject, body, options);
+    const result = await sendEmail(to, subject, body, options);
+    this.recorder?.record('email', { to, subject }, result);
+    return result;
   }
 
   // --- CAPTCHA ---
@@ -116,6 +161,16 @@ class Reach {
     return getExportInstructions(browser);
   }
 
+  // --- Natural Language ---
+
+  parseCommand(text) {
+    return parseCommand(text);
+  }
+
+  async do(text) {
+    return executeCommand(text, this);
+  }
+
   // --- Convenience ---
 
   getAddress(privateKey) {
@@ -132,6 +187,21 @@ class Reach {
 
   listKeys() {
     return listKeys();
+  }
+
+  // --- Recording ---
+
+  startRecording(name) {
+    this.recorder = new SessionRecorder({ name });
+    this.recorder.start();
+    return this.recorder;
+  }
+
+  stopRecording() {
+    if (!this.recorder) return null;
+    const result = this.recorder.stop();
+    this.recorder = null;
+    return result;
   }
 
   // --- Router ---
@@ -161,9 +231,9 @@ class Reach {
         if (plan.method === 'persist') return this.persist(task.params?.key, task.params?.value, plan.params);
         return this.recall(task.params?.key);
       case 'observe':
-        return observe(task.url, task.params?.condition, task.params?.callback);
+        return this.observe(task.url, task.params, task.params?.callback);
       case 'pay':
-        return pay(task.params?.recipient, task.params?.amount, plan.params);
+        return this.pay(task.params?.recipient, task.params?.amount, plan.params);
       default:
         throw new Error(`Unknown primitive: ${plan.primitive}`);
     }
@@ -179,6 +249,9 @@ class Reach {
   // --- Lifecycle ---
 
   async close() {
+    if (this.recorder?.isRecording()) {
+      this.stopRecording();
+    }
     await pool.close();
   }
 }
@@ -192,6 +265,10 @@ export { sendEmail } from './primitives/email.js';
 export { detectCaptcha, solveCaptcha };
 export { importCookies, getExportInstructions };
 export { getAddress, getSession, listSessions, listKeys };
+export { SessionRecorder, loadRecording, listRecordings, formatTimeline };
+export { saveForm, recallForm, getAutoFillData, autoFillPage, extractFormFields, forgetForm, listForms };
+export { WebhookServer };
+export { parseCommand, executeCommand };
 
 // Export site skills
 export { code4rena, upwork, github, immunefi };

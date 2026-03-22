@@ -4,6 +4,10 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import { Reach } from './index.js';
+import { loadRecording, listRecordings, formatTimeline } from './utils/recorder.js';
+import { parseCommand, executeCommand } from './natural.js';
+import { listForms } from './utils/form-memory.js';
+import { WebhookServer } from './utils/webhook-server.js';
 
 const reach = new Reach();
 const [,, command, ...args] = process.argv;
@@ -169,6 +173,124 @@ async function main() {
         break;
       }
 
+      // --- New commands ---
+
+      case 'replay': {
+        const sessionFile = args[0];
+        if (!sessionFile) {
+          // List available recordings
+          const recordings = listRecordings();
+          if (recordings.length === 0) {
+            console.log('No recordings found.');
+          } else {
+            console.log('Available recordings:');
+            for (const r of recordings) {
+              console.log(`  ${r.name}  (${r.entryCount} actions, ${r.duration || '?'})  ${r.startedAt || ''}`);
+            }
+          }
+          break;
+        }
+
+        const session = loadRecording(sessionFile);
+        console.log(formatTimeline(session));
+        break;
+      }
+
+      case 'forms': {
+        const forms = listForms();
+        if (forms.length === 0) {
+          console.log('No saved form data.');
+        } else {
+          console.log('Saved form memories:');
+          for (const f of forms) {
+            console.log(`  ${f.url || f.file}  (${f.fieldCount} fields)  ${f.lastUpdated || ''}`);
+          }
+        }
+        break;
+      }
+
+      case 'webhook': {
+        const port = parseInt(getFlag('--port', args) || '8430');
+        const server = new WebhookServer({ port });
+
+        // Register handlers from remaining args
+        // Format: --on /path
+        let i = 0;
+        while (i < args.length) {
+          if (args[i] === '--on' && i + 1 < args.length) {
+            const hookPath = args[i + 1];
+            server.on(hookPath, (payload, headers) => {
+              console.log(`\n[${new Date().toISOString()}] Webhook received: ${hookPath}`);
+              console.log(JSON.stringify(payload, null, 2));
+            });
+            i += 2;
+          } else {
+            i++;
+          }
+        }
+
+        await server.start();
+        console.log('Press Ctrl+C to stop');
+
+        // Keep running until interrupted
+        await new Promise((resolve) => {
+          process.on('SIGINT', async () => {
+            await server.stop();
+            resolve();
+          });
+        });
+        break;
+      }
+
+      case 'do': {
+        const text = args.join(' ');
+        if (!text) {
+          console.error('Usage: reach do "<natural language command>"');
+          console.error('Examples:');
+          console.error('  reach do "go to github"');
+          console.error('  reach do "search upwork for solidity jobs"');
+          console.error('  reach do "screenshot basescan.org"');
+          process.exit(1);
+        }
+
+        const plan = parseCommand(text);
+        if (!plan) {
+          console.error(`Could not understand: "${text}"`);
+          console.error('Try: go to, search, click, type, email, send, watch, remember, screenshot, login');
+          process.exit(1);
+        }
+
+        console.log(`Plan: ${plan.description}`);
+        console.log(`  primitive: ${plan.primitive}, method: ${plan.method}`);
+        console.log(`  params: ${JSON.stringify(plan.params)}`);
+        console.log('');
+
+        const result = await executeCommand(text, reach);
+        if (result.error) {
+          console.error(`Error: ${result.error}`);
+        } else if (result.result) {
+          console.log(typeof result.result === 'object'
+            ? JSON.stringify(result.result, null, 2)
+            : result.result);
+        }
+        break;
+      }
+
+      case 'parse': {
+        const text = args.join(' ');
+        if (!text) {
+          console.error('Usage: reach parse "<natural language command>"');
+          process.exit(1);
+        }
+        const plan = parseCommand(text);
+        if (plan) {
+          console.log(JSON.stringify(plan, null, 2));
+        } else {
+          console.log('Could not parse command');
+        }
+        break;
+      }
+
       default:
         console.error(`Unknown command: ${command}`);
         printHelp();
@@ -196,12 +318,12 @@ function printHelp() {
   console.log(`
 Reach — Agent Web Interface
 
-Commands:
+Primitives:
   fetch <url> [--format markdown|html|json|screenshot] [--js]
     Fetch content from a URL
 
   act <url> <click|type|submit|select> [target]
-    Interact with a web page
+    Interact with a web page (with error recovery)
 
   auth <service> [cookie|login] [url]
     Authenticate with a service
@@ -212,6 +334,10 @@ Commands:
   store <key> [value]
     Store or recall a value (omit value to recall)
 
+  see <url> ["question"]
+    Take screenshot + extract page structure for visual reasoning
+
+Navigation:
   sessions
     List saved authentication sessions
 
@@ -221,14 +347,30 @@ Commands:
   learn <url> [--needsJS] [--needsAuth] [--api <endpoint>]
     Teach the router about a site
 
-  see <url> ["question"]
-    Take screenshot + extract page structure for visual reasoning
-
+Cookies:
   import-cookies <service> <file-path> [format]
     Import cookies from browser export (formats: auto, playwright, editthiscookie, netscape)
 
   export-instructions [chrome|firefox|manual]
     Print instructions for exporting cookies from a browser
+
+Natural Language:
+  do "<command>"
+    Execute a natural language command (e.g. "go to github", "search upwork for solidity")
+
+  parse "<command>"
+    Parse a natural language command without executing
+
+Recording:
+  replay [session-file]
+    Replay a recorded session (omit file to list recordings)
+
+  forms
+    List saved form memories
+
+Webhook:
+  webhook [--port 8430] [--on /path] [--on /path2]
+    Start a webhook receiver server
 `);
 }
 
