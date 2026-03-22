@@ -24,6 +24,11 @@ import code4rena from './sites/code4rena.js';
 import upwork from './sites/upwork.js';
 import github from './sites/github.js';
 import immunefi from './sites/immunefi.js';
+import exoskeletons from './sites/exoskeletons.js';
+
+// Identity & activity
+import { resolveIdentity, attachIdentity } from './utils/exo-identity.js';
+import { logActivity, getActivity, getActivitySummary, clearActivity } from './utils/activity-reporter.js';
 
 /**
  * Reach — Agent Web Interface
@@ -62,7 +67,43 @@ class Reach {
       upwork,
       github,
       immunefi,
+      exoskeletons,
     };
+
+    // Identity (auto-resolved if wallet provided)
+    this.identity = null;
+    this._identityPromise = null;
+
+    if (options.wallet?.privateKey) {
+      this._identityPromise = this._resolveIdentity();
+    }
+  }
+
+  /**
+   * Auto-resolve Exo identity from the configured wallet.
+   * @private
+   */
+  async _resolveIdentity() {
+    try {
+      const { ethers } = await import('ethers');
+      const wallet = new ethers.Wallet(process.env.PRIVATE_KEY);
+      const identity = await resolveIdentity(wallet.address);
+      attachIdentity(this, identity);
+      if (identity) {
+        console.log(`[Reach] Exo identity resolved: ${identity.name || 'Exo #' + identity.primaryExoId} (rep: ${identity.reputation})`);
+      }
+    } catch (e) {
+      // Identity resolution is best-effort — don't block Reach startup
+    }
+  }
+
+  /**
+   * Wait for identity resolution to complete.
+   * @returns {object|null} Identity object or null
+   */
+  async waitForIdentity() {
+    if (this._identityPromise) await this._identityPromise;
+    return this.identity;
   }
 
   // --- Primitives ---
@@ -246,6 +287,24 @@ class Reach {
     this.router.learnSite(url, info);
   }
 
+  // --- Activity Reporter ---
+
+  logActivity(action) {
+    // Auto-attach identity name if available
+    if (this.identity && !action.identity) {
+      action.identity = this.identity.name || `Exo #${this.identity.primaryExoId}`;
+    }
+    return logActivity(action);
+  }
+
+  getActivity(limit, type) {
+    return getActivity(limit, type);
+  }
+
+  getActivitySummary() {
+    return getActivitySummary();
+  }
+
   // --- Lifecycle ---
 
   async close() {
@@ -271,4 +330,6 @@ export { WebhookServer };
 export { parseCommand, executeCommand };
 
 // Export site skills
-export { code4rena, upwork, github, immunefi };
+export { code4rena, upwork, github, immunefi, exoskeletons };
+export { resolveIdentity, attachIdentity };
+export { logActivity, getActivity, getActivitySummary, clearActivity };

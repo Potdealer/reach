@@ -55,6 +55,14 @@ class Router {
   }
 
   /**
+   * Attach identity context for reputation-gated routing.
+   * @param {object|null} identity - Exo identity from resolveIdentity()
+   */
+  setIdentity(identity) {
+    this.identity = identity;
+  }
+
+  /**
    * Route a task to the best primitive and layer.
    *
    * @param {object} task
@@ -132,14 +140,29 @@ class Router {
   }
 
   routeInteract(url, site, params) {
-    // Interaction always needs browser
-    return {
+    const route = {
       primitive: 'act',
       method: 'act',
       layer: 'browser',
       params: { url, ...params },
       reason: 'Web interaction requires browser',
     };
+
+    // Reputation-gated behavior
+    if (this.identity) {
+      const rep = this.identity.reputation || 0;
+      if (rep > 100) {
+        route.params._trustedAgent = true;
+        route.reason += ' [trusted agent — rep > 100]';
+      }
+      if (rep > 500) {
+        route.params._skipCaptcha = true;
+        route.params._presentIdentity = true;
+        route.reason += ' [high rep — present identity instead of CAPTCHA]';
+      }
+    }
+
+    return route;
   }
 
   routeAuth(url, site, params) {
