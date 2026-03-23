@@ -200,14 +200,63 @@ const view = await reach.see('https://example.com');
 
 ### email(to, subject, body, options?)
 
-Send email via Resend API.
+Send and receive email. Agents get their own email address at `agent@mfer.one`.
+
+**Sending:**
 
 ```javascript
+// Send from default address
 await reach.email('client@company.com', 'Audit Report', 'Found 3 critical issues...');
+
+// Send from a mfer.one address
+await reach.email('user@example.com', 'Hello', 'gm from the chain', { from: 'ollie@mfer.one' });
 
 // HTML email
 await reach.email('user@example.com', 'Welcome', '<h1>Hello</h1>', { html: true });
 ```
+
+**Receiving (via webhook):**
+
+Incoming email to `*@mfer.one` is routed through a Cloudflare Email Worker, which POSTs JSON to the Reach webhook server at `/email`. Start the webhook server to receive:
+
+```javascript
+import { WebhookServer } from './src/utils/webhook-server.js';
+const server = new WebhookServer({ port: 8430 });
+await server.start(); // /email handler is registered automatically
+```
+
+**Reading inbox:**
+
+```javascript
+// Check unread count
+const count = reach.getUnreadCount();
+
+// List emails
+const emails = reach.getInbox({ unread: true, limit: 10 });
+
+// Read full email (including body)
+const email = reach.readEmail(messageId);
+
+// Mark as read
+reach.markRead(messageId);
+```
+
+**Replying (threads correctly via In-Reply-To/References headers):**
+
+```javascript
+await reach.replyEmail(messageId, 'Thanks for reaching out. Here is the audit report...');
+```
+
+**Event-driven (react to incoming email):**
+
+```javascript
+reach.onEmail((email) => {
+  console.log(`New email from ${email.from}: ${email.subject}`);
+  // Agent decides how to respond
+});
+```
+
+Emails are persisted to `data/inbox/` as individual JSON files with an index. Inbox caps at 1000 emails.
 
 ## Site Skills
 
@@ -368,6 +417,12 @@ node src/cli.js parse "search upwork for solidity"
 node src/cli.js replay [session-file]
 node src/cli.js forms
 
+# Email
+node src/cli.js email <to> <subject> <body> [--from agent@mfer.one]
+node src/cli.js inbox [--unread] [--from addr] [--limit N]
+node src/cli.js read <messageId>
+node src/cli.js reply <messageId> <body>
+
 # Webhook
 node src/cli.js webhook [--port 8430] [--on /path]
 
@@ -382,7 +437,7 @@ node src/cli.js export-instructions [chrome|firefox]
 |----------|----------|---------|
 | `PRIVATE_KEY` | For sign/pay | Ethereum wallet private key |
 | `RPC_URL` | No | RPC endpoint (default: Base mainnet) |
-| `RESEND_API_KEY` | For email | Resend API key |
+| `RESEND_API_KEY` | For email | Resend API key (send from @exoagent.xyz or @mfer.one) |
 | `CAPSOLVER_API_KEY` | For CAPTCHA | CapSolver API key |
 | `GITHUB_TOKEN` | For GitHub API | GitHub personal access token |
 | `UPWORK_EMAIL` | For Upwork | Upwork login email |

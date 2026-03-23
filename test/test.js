@@ -8,6 +8,7 @@ import { WebhookServer } from '../src/utils/webhook-server.js';
 import { parseCommand, executeCommand, SITE_ALIASES, resolveUrl } from '../src/natural.js';
 import { observe } from '../src/primitives/observe.js';
 import { pay, KNOWN_TOKENS, ERC20_ABI } from '../src/primitives/pay.js';
+import { receiveEmail, getInbox, readEmail, markRead, markUnread, getUnreadCount, deleteEmail, onEmail, clearEmailCallbacks, _resetInbox } from '../src/primitives/email.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -547,6 +548,178 @@ async function testReachRecording() {
 }
 
 // ==========================================
+// Email inbox tests
+// ==========================================
+
+async function testEmailInbox() {
+  console.log('\n--- email inbox ---');
+
+  // Clean slate
+  _resetInbox();
+  const inboxDir = path.join(process.cwd(), 'data', 'inbox');
+  // Remove test files if they exist
+  if (fs.existsSync(inboxDir)) {
+    const files = fs.readdirSync(inboxDir);
+    for (const f of files) {
+      try { fs.unlinkSync(path.join(inboxDir, f)); } catch {}
+    }
+  }
+  _resetInbox();
+
+  // Test receiveEmail stores correctly
+  const email1 = receiveEmail({
+    from: 'alice@example.com',
+    to: 'ollie@mfer.one',
+    subject: 'Hello Ollie',
+    body: 'Testing the inbox system.',
+    messageId: 'test-msg-001',
+    timestamp: '2026-03-22T10:00:00Z',
+  });
+  assert(email1.messageId === 'test-msg-001', 'receiveEmail returns correct messageId');
+  assert(email1.read === false, 'receiveEmail marks as unread');
+
+  // Store a second email
+  receiveEmail({
+    from: 'bob@example.com',
+    to: 'athena@mfer.one',
+    subject: 'Security Review Request',
+    body: 'Can you review my contract?',
+    messageId: 'test-msg-002',
+    timestamp: '2026-03-22T11:00:00Z',
+    localPart: 'athena',
+  });
+
+  // Store a third email
+  receiveEmail({
+    from: 'alice@example.com',
+    to: 'ollie@mfer.one',
+    subject: 'Follow up',
+    body: 'Just checking in.',
+    messageId: 'test-msg-003',
+    timestamp: '2026-03-22T12:00:00Z',
+  });
+
+  // Test getInbox returns all
+  const all = getInbox();
+  assert(all.length === 3, 'getInbox returns all 3 emails');
+
+  // Test getInbox sorted newest first
+  assert(all[0].messageId === 'test-msg-003', 'getInbox sorts newest first');
+
+  // Test unread filter
+  const unread = getInbox({ unread: true });
+  assert(unread.length === 3, 'all 3 emails are unread initially');
+
+  // Test from filter
+  const fromAlice = getInbox({ from: 'alice' });
+  assert(fromAlice.length === 2, 'from filter matches 2 alice emails');
+
+  // Test subject filter
+  const security = getInbox({ subject: 'security' });
+  assert(security.length === 1, 'subject filter matches 1 email');
+
+  // Test localPart filter
+  const athenaEmails = getInbox({ localPart: 'athena' });
+  assert(athenaEmails.length === 1, 'localPart filter matches athena email');
+
+  // Test limit
+  const limited = getInbox({ limit: 2 });
+  assert(limited.length === 2, 'limit works');
+
+  // Test readEmail (full body)
+  const fullEmail = readEmail('test-msg-001');
+  assert(fullEmail !== null, 'readEmail returns email');
+  assert(fullEmail.body === 'Testing the inbox system.', 'readEmail includes body');
+
+  // Test markRead
+  const marked = markRead('test-msg-001');
+  assert(marked === true, 'markRead returns true');
+  const afterMark = getInbox({ unread: true });
+  assert(afterMark.length === 2, 'after markRead, 2 unread remain');
+
+  // Test markUnread
+  markUnread('test-msg-001');
+  const afterUnmark = getInbox({ unread: true });
+  assert(afterUnmark.length === 3, 'after markUnread, 3 unread again');
+
+  // Test getUnreadCount
+  markRead('test-msg-001');
+  const count = getUnreadCount();
+  assert(count === 2, 'getUnreadCount returns 2');
+
+  // Test deleteEmail
+  const deleted = deleteEmail('test-msg-003');
+  assert(deleted === true, 'deleteEmail returns true');
+  const afterDelete = getInbox();
+  assert(afterDelete.length === 2, 'after delete, 2 emails remain');
+  assert(readEmail('test-msg-003') === null, 'deleted email file is gone');
+
+  // Test onEmail callback
+  let callbackReceived = null;
+  const unsub = onEmail((data) => {
+    callbackReceived = data;
+  });
+
+  receiveEmail({
+    from: 'callback@test.com',
+    to: 'ollie@mfer.one',
+    subject: 'Callback Test',
+    body: 'Did the callback fire?',
+    messageId: 'test-msg-004',
+  });
+  assert(callbackReceived !== null, 'onEmail callback fires');
+  assert(callbackReceived.from === 'callback@test.com', 'callback receives correct data');
+
+  // Test unsubscribe
+  unsub();
+  callbackReceived = null;
+  receiveEmail({
+    from: 'after-unsub@test.com',
+    to: 'ollie@mfer.one',
+    subject: 'After Unsub',
+    body: 'Should not trigger callback.',
+    messageId: 'test-msg-005',
+  });
+  assert(callbackReceived === null, 'after unsub, callback does not fire');
+
+  // Test disk persistence — reset memory and reload
+  _resetInbox();
+  const reloaded = getInbox();
+  assert(reloaded.length === 4, 'inbox persists to disk and reloads (4 emails)');
+
+  // Test readEmail not found
+  const notFound = readEmail('nonexistent-id');
+  assert(notFound === null, 'readEmail returns null for unknown ID');
+
+  // Test markRead not found
+  const markNotFound = markRead('nonexistent-id');
+  assert(markNotFound === false, 'markRead returns false for unknown ID');
+
+  // Test body truncation
+  const hugeBody = 'x'.repeat(200 * 1024);
+  receiveEmail({
+    from: 'big@test.com',
+    to: 'ollie@mfer.one',
+    subject: 'Huge Email',
+    body: hugeBody,
+    messageId: 'test-msg-huge',
+  });
+  const hugeEmail = readEmail('test-msg-huge');
+  assert(hugeEmail.body.length < hugeBody.length, 'large body is truncated');
+  assert(hugeEmail.body.includes('[... truncated]'), 'truncated body has marker');
+
+  // Cleanup test emails
+  clearEmailCallbacks();
+  _resetInbox();
+  if (fs.existsSync(inboxDir)) {
+    const files = fs.readdirSync(inboxDir);
+    for (const f of files) {
+      try { fs.unlinkSync(path.join(inboxDir, f)); } catch {}
+    }
+  }
+}
+
+// ==========================================
 // Run all tests
 // ==========================================
 
@@ -561,6 +734,7 @@ async function main() {
   await testFormMemory();
   await testNatural();
   await testReachRecording();
+  await testEmailInbox();
 
   // Integration tests (need network)
   await testFetch();

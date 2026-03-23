@@ -8,6 +8,7 @@ import { loadRecording, listRecordings, formatTimeline } from './utils/recorder.
 import { parseCommand, executeCommand } from './natural.js';
 import { listForms } from './utils/form-memory.js';
 import { WebhookServer } from './utils/webhook-server.js';
+import { getInbox, readEmail, markRead, replyToEmail, getUnreadCount } from './primitives/email.js';
 
 const reach = new Reach();
 const [,, command, ...args] = process.argv;
@@ -291,6 +292,81 @@ async function main() {
         break;
       }
 
+      case 'email': {
+        const emailTo = args[0];
+        const emailSubject = args[1];
+        const emailBody = args.slice(2).join(' ');
+        if (!emailTo || !emailSubject || !emailBody) {
+          console.error('Usage: reach email <to> <subject> <body>');
+          process.exit(1);
+        }
+        const fromAddr = getFlag('--from', args);
+        const emailResult = await reach.email(emailTo, emailSubject, emailBody, fromAddr ? { from: fromAddr } : {});
+        console.log(JSON.stringify(emailResult, null, 2));
+        break;
+      }
+
+      case 'inbox': {
+        const unreadOnly = args.includes('--unread');
+        const fromFilter = getFlag('--from', args);
+        const subjectFilter = getFlag('--subject', args);
+        const limitVal = parseInt(getFlag('--limit', args) || '20');
+        const opts = { limit: limitVal };
+        if (unreadOnly) opts.unread = true;
+        if (fromFilter) opts.from = fromFilter;
+        if (subjectFilter) opts.subject = subjectFilter;
+
+        const emails = getInbox(opts);
+        const unreadTotal = getUnreadCount();
+
+        if (emails.length === 0) {
+          console.log(unreadOnly ? 'No unread emails.' : 'Inbox is empty.');
+        } else {
+          console.log(`Inbox (${unreadTotal} unread)\n`);
+          for (const e of emails) {
+            const readFlag = e.read ? '  ' : '* ';
+            const date = new Date(e.timestamp).toLocaleDateString();
+            const from = e.from.length > 30 ? e.from.slice(0, 27) + '...' : e.from;
+            const subject = e.subject.length > 50 ? e.subject.slice(0, 47) + '...' : e.subject;
+            console.log(`${readFlag}${date}  ${from.padEnd(30)}  ${subject}`);
+            console.log(`  ID: ${e.messageId}`);
+          }
+        }
+        break;
+      }
+
+      case 'read': {
+        const msgId = args[0];
+        if (!msgId) { console.error('Usage: reach read <messageId>'); process.exit(1); }
+        const emailMsg = readEmail(msgId);
+        if (!emailMsg) {
+          console.error(`Email not found: ${msgId}`);
+          process.exit(1);
+        }
+        markRead(msgId);
+        console.log(`From: ${emailMsg.from}`);
+        console.log(`To: ${emailMsg.to}`);
+        console.log(`Subject: ${emailMsg.subject}`);
+        console.log(`Date: ${emailMsg.timestamp}`);
+        console.log(`Message-ID: ${emailMsg.messageId}`);
+        if (emailMsg.inReplyTo) console.log(`In-Reply-To: ${emailMsg.inReplyTo}`);
+        console.log(`\n${emailMsg.body || '(no body)'}`);
+        break;
+      }
+
+      case 'reply': {
+        const replyMsgId = args[0];
+        const replyBody = args.slice(1).join(' ');
+        if (!replyMsgId || !replyBody) {
+          console.error('Usage: reach reply <messageId> <body>');
+          process.exit(1);
+        }
+        const fromReply = getFlag('--from', args);
+        const replyResult = await replyToEmail(replyMsgId, replyBody, fromReply ? { from: fromReply } : {});
+        console.log(JSON.stringify(replyResult, null, 2));
+        break;
+      }
+
       default:
         console.error(`Unknown command: ${command}`);
         printHelp();
@@ -368,9 +444,22 @@ Recording:
   forms
     List saved form memories
 
+Email:
+  email <to> <subject> <body> [--from agent@mfer.one]
+    Send an email via Resend API
+
+  inbox [--unread] [--from addr] [--subject text] [--limit N]
+    List inbox (default: 20 most recent)
+
+  read <messageId>
+    Read a specific email (marks as read)
+
+  reply <messageId> <body> [--from agent@mfer.one]
+    Reply to an email (threads correctly via In-Reply-To/References)
+
 Webhook:
   webhook [--port 8430] [--on /path] [--on /path2]
-    Start a webhook receiver server
+    Start a webhook receiver server (includes /email for inbound mail)
 `);
 }
 

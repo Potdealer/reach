@@ -1,4 +1,5 @@
 import http from 'http';
+import { receiveEmail } from '../primitives/email.js';
 
 /**
  * Webhook Server — listens for incoming webhooks and dispatches to handlers.
@@ -8,6 +9,9 @@ import http from 'http';
  *   server.on('/github', (payload) => console.log('GitHub event:', payload));
  *   server.on('/stripe', (payload) => console.log('Payment:', payload));
  *   server.start();
+ *
+ * Built-in routes:
+ *   POST /email — receives inbound email from Cloudflare Email Worker
  *
  * Integrates with observe() — when observe uses method: 'webhook',
  * the observer registers a path on this server.
@@ -20,6 +24,13 @@ class WebhookServer {
     this.server = null;
     this.requestLog = [];
     this.maxLogSize = options.maxLogSize || 1000;
+
+    // Register built-in email webhook handler
+    if (options.email !== false) {
+      this.on('/email', (payload) => {
+        receiveEmail(payload);
+      });
+    }
   }
 
   /**

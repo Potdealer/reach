@@ -10,7 +10,7 @@ import { observe } from './primitives/observe.js';
 import { pay } from './primitives/pay.js';
 import { see } from './primitives/see.js';
 import { detectCaptcha, solveCaptcha } from './primitives/captcha.js';
-import { sendEmail } from './primitives/email.js';
+import { sendEmail, receiveEmail, getInbox, readEmail, markRead, markUnread, getUnreadCount, replyToEmail, deleteEmail, onEmail, clearEmailCallbacks } from './primitives/email.js';
 import { importCookies, getExportInstructions } from './utils/cookie-import.js';
 import { SessionRecorder, loadRecording, listRecordings, formatTimeline } from './utils/recorder.js';
 import { saveForm, recallForm, getAutoFillData, autoFillPage, extractFormFields, forgetForm, listForms } from './utils/form-memory.js';
@@ -34,6 +34,7 @@ import { logActivity, getActivity, getActivitySummary, clearActivity } from './u
  * Reach — Agent Web Interface
  *
  * 9 primitives: fetch, act, authenticate, sign, persist, observe, pay, see, email
+ * Email inbox: receive, read, reply with threading, event callbacks
  * 1 router: picks the optimal interaction layer for each task
  * 4 site skills: code4rena, upwork, github, immunefi
  * Utilities: cookie import, session recording, form memory, webhook server, natural language
@@ -182,6 +183,63 @@ class Reach {
     return result;
   }
 
+  /**
+   * Get inbox entries with optional filtering.
+   * @param {object} [options] - { unread, from, subject, localPart, limit, offset }
+   * @returns {object[]} Array of inbox entries (use readEmail for full body)
+   */
+  getInbox(options = {}) {
+    return getInbox(options);
+  }
+
+  /**
+   * Read a specific email by messageId (full content including body).
+   * @param {string} messageId
+   * @returns {object|null}
+   */
+  readEmail(messageId) {
+    return readEmail(messageId);
+  }
+
+  /**
+   * Mark an email as read.
+   * @param {string} messageId
+   * @returns {boolean}
+   */
+  markRead(messageId) {
+    return markRead(messageId);
+  }
+
+  /**
+   * Get unread email count.
+   * @returns {number}
+   */
+  getUnreadCount() {
+    return getUnreadCount();
+  }
+
+  /**
+   * Reply to an email with proper threading headers (In-Reply-To, References).
+   * @param {string} messageId - The message ID to reply to
+   * @param {string} body - Reply body
+   * @param {object} [options] - Same as email() options
+   * @returns {object} sendEmail result
+   */
+  async replyEmail(messageId, body, options = {}) {
+    const result = await replyToEmail(messageId, body, options);
+    this.recorder?.record('replyEmail', { messageId, bodyLength: body.length }, result);
+    return result;
+  }
+
+  /**
+   * Register a callback for incoming emails.
+   * @param {function} callback - (emailData) => void
+   * @returns {function} Unsubscribe function
+   */
+  onEmail(callback) {
+    return onEmail(callback);
+  }
+
   // --- CAPTCHA ---
 
   async detectCaptcha(page) {
@@ -320,7 +378,7 @@ export default Reach;
 
 // Also export individual primitives for direct use
 export { fetch, act, authenticate, sign, persist, recall, forget, observe, pay, see };
-export { sendEmail } from './primitives/email.js';
+export { sendEmail, receiveEmail, getInbox, readEmail, markRead, markUnread, getUnreadCount, replyToEmail, deleteEmail, onEmail } from './primitives/email.js';
 export { detectCaptcha, solveCaptcha };
 export { importCookies, getExportInstructions };
 export { getAddress, getSession, listSessions, listKeys };
