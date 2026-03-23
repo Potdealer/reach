@@ -426,6 +426,116 @@ export function clearEmailCallbacks() {
   emailCallbacks = [];
 }
 
+// ─── Remote Inbox (Cloudflare KV API) ────────────────────
+
+/**
+ * Base URL and API key for the Cloudflare KV email worker.
+ * Set MFER_EMAIL_API_URL and MFER_EMAIL_API_KEY in .env
+ *
+ * Production URL: https://mfer-one-email.<account>.workers.dev
+ */
+const REMOTE_API_URL = process.env.MFER_EMAIL_API_URL || '';
+const REMOTE_API_KEY = process.env.MFER_EMAIL_API_KEY || '';
+
+/**
+ * Internal helper for remote API calls.
+ */
+async function remoteRequest(method, path, body = null) {
+  if (!REMOTE_API_URL) {
+    throw new Error('MFER_EMAIL_API_URL not set in .env');
+  }
+  if (!REMOTE_API_KEY) {
+    throw new Error('MFER_EMAIL_API_KEY not set in .env');
+  }
+
+  const url = `${REMOTE_API_URL.replace(/\/$/, '')}${path}`;
+  const options = {
+    method,
+    headers: {
+      'X-Api-Key': REMOTE_API_KEY,
+      'Content-Type': 'application/json',
+    },
+  };
+  if (body) {
+    options.body = JSON.stringify(body);
+  }
+
+  const response = await nodeFetch(url, options);
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || `Remote API error: ${response.status}`);
+  }
+
+  return data;
+}
+
+/**
+ * Fetch inbox from Cloudflare KV email API.
+ *
+ * @param {string} name - Local part (e.g., "ollie" for ollie@mfer.one)
+ * @param {object} [options]
+ * @param {boolean} [options.unread] - Only unread emails
+ * @param {string} [options.from] - Filter by sender
+ * @param {number} [options.limit] - Max results (default: 50)
+ * @param {number} [options.offset] - Skip N results
+ * @returns {object} { name, emails, total, offset, limit }
+ */
+export async function getRemoteInbox(name, options = {}) {
+  const params = new URLSearchParams();
+  if (options.unread) params.set('unread', 'true');
+  if (options.from) params.set('from', options.from);
+  if (options.limit) params.set('limit', String(options.limit));
+  if (options.offset) params.set('offset', String(options.offset));
+
+  const qs = params.toString();
+  const path = `/inbox/${encodeURIComponent(name)}${qs ? '?' + qs : ''}`;
+  return await remoteRequest('GET', path);
+}
+
+/**
+ * Read a specific email from the remote inbox.
+ *
+ * @param {string} name - Local part
+ * @param {string} messageId - The message ID
+ * @returns {object} Full email data
+ */
+export async function readRemoteEmail(name, messageId) {
+  return await remoteRequest('GET', `/inbox/${encodeURIComponent(name)}/${encodeURIComponent(messageId)}`);
+}
+
+/**
+ * Mark a remote email as read.
+ *
+ * @param {string} name - Local part
+ * @param {string} messageId - The message ID
+ * @returns {object} { success, messageId, read }
+ */
+export async function markRemoteRead(name, messageId) {
+  return await remoteRequest('POST', `/inbox/${encodeURIComponent(name)}/${encodeURIComponent(messageId)}/read`);
+}
+
+/**
+ * Delete a remote email.
+ *
+ * @param {string} name - Local part
+ * @param {string} messageId - The message ID
+ * @returns {object} { success, messageId, deleted }
+ */
+export async function deleteRemoteEmail(name, messageId) {
+  return await remoteRequest('DELETE', `/inbox/${encodeURIComponent(name)}/${encodeURIComponent(messageId)}`);
+}
+
+/**
+ * Get unread count from remote inbox.
+ *
+ * @param {string} name - Local part
+ * @returns {object} { name, unread }
+ */
+export async function getRemoteUnreadCount(name) {
+  return await remoteRequest('GET', `/inbox/${encodeURIComponent(name)}/unread`);
+}
+
 // ─── Testing Helpers ──────────────────────────────────────
 
 /**
@@ -437,6 +547,7 @@ export function _resetInbox() {
 }
 
 export default {
+  // Local
   sendEmail,
   receiveEmail,
   getInbox,
@@ -448,4 +559,10 @@ export default {
   deleteEmail,
   onEmail,
   clearEmailCallbacks,
+  // Remote (Cloudflare KV)
+  getRemoteInbox,
+  readRemoteEmail,
+  markRemoteRead,
+  deleteRemoteEmail,
+  getRemoteUnreadCount,
 };
