@@ -24,3 +24,7 @@ Thumbs.db
 *.swp
 *.swo
 private-sites/
+
+# Local-only config and scripts
+start-tunnel.sh
+ecosystem.config.cjs

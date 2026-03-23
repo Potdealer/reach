@@ -1,8 +1,8 @@
 # Reach
 
-Agent web interface. Gives AI agents the ability to browse websites, fill forms, login to services, sign crypto transactions, send emails, watch for changes, and make payments.
+Agent web interface. Gives AI agents the ability to browse websites, fill forms, login to services, sign crypto transactions, send and receive emails, watch for changes, and make payments.
 
-9 primitives. 4 site skills. 1 intelligent router. MCP server for Claude Code.
+9 primitives. 2 site skills + template. Intelligent router. MCP server for Claude Code. Free agent identity via mfer.one.
 
 ## Install
 
@@ -31,10 +31,41 @@ await reach.act('https://example.com/form', 'submit', {
 });
 
 // Natural language
-await reach.do('search upwork for solidity jobs');
+await reach.do('search github for solidity audit tools');
 
 await reach.close();
 ```
+
+## Free Agent Identity
+
+Register a name on [ExoHost](https://github.com/Potdealer/exohost) and get a complete agent identity — website, email, and onchain naming — for free (5+ character names).
+
+```
+myagent.mfer.one     → your website (stored onchain as an NFT)
+myagent@mfer.one     → your email inbox (send + receive)
+```
+
+```javascript
+import { getRemoteInbox, readRemoteEmail, markRemoteRead } from './src/primitives/email.js';
+
+// Check your inbox
+const inbox = await getRemoteInbox('myagent');
+console.log(`${inbox.total} emails for myagent@mfer.one`);
+
+// Read an email
+const email = await readRemoteEmail('myagent', inbox.emails[0].id);
+console.log(email.subject, email.body);
+
+// Mark it read
+await markRemoteRead('myagent', inbox.emails[0].id);
+
+// Send email from your mfer.one address
+await reach.email('client@company.com', 'Audit Report', 'Found 3 critical issues...', {
+  from: 'myagent@mfer.one'
+});
+```
+
+Names are ERC-721 tokens on Base. 5+ characters are free (just gas). Shorter names have pricing tiers. The website content is stored directly on the NFT via Net Protocol.
 
 ## Primitives
 
@@ -58,7 +89,7 @@ const shot = await reach.fetch('https://example.com', { format: 'screenshot' });
 
 ### act(url, action, params?)
 
-Interact with web pages. Includes error recovery — tries multiple strategies (selector, text, role, aria-label, coordinates) before giving up.
+Interact with web pages. Includes error recovery — tries 5 strategies (selector, text, role, aria-label, coordinates) before giving up.
 
 ```javascript
 // Click by text
@@ -200,7 +231,7 @@ const view = await reach.see('https://example.com');
 
 ### email(to, subject, body, options?)
 
-Send and receive email. Agents get their own email address at `agent@mfer.one`.
+Send and receive email. Agents get their own inbox at `name@mfer.one`.
 
 **Sending:**
 
@@ -209,7 +240,7 @@ Send and receive email. Agents get their own email address at `agent@mfer.one`.
 await reach.email('client@company.com', 'Audit Report', 'Found 3 critical issues...');
 
 // Send from a mfer.one address
-await reach.email('user@example.com', 'Hello', 'gm from the chain', { from: 'ollie@mfer.one' });
+await reach.email('user@example.com', 'Hello', 'gm from the chain', { from: 'myagent@mfer.one' });
 
 // HTML email
 await reach.email('user@example.com', 'Welcome', '<h1>Hello</h1>', { html: true });
@@ -225,7 +256,24 @@ const server = new WebhookServer({ port: 8430 });
 await server.start(); // /email handler is registered automatically
 ```
 
-**Reading inbox:**
+**Remote inbox (Cloudflare KV):**
+
+Read emails stored in the remote inbox without running a local webhook server:
+
+```javascript
+import { getRemoteInbox, readRemoteEmail, markRemoteRead } from './src/primitives/email.js';
+
+// List emails
+const inbox = await getRemoteInbox('myagent', { unread: true, limit: 10 });
+
+// Read a specific email
+const email = await readRemoteEmail('myagent', messageId);
+
+// Mark as read
+await markRemoteRead('myagent', messageId);
+```
+
+**Local inbox:**
 
 ```javascript
 // Check unread count
@@ -260,7 +308,9 @@ Emails are persisted to `data/inbox/` as individual JSON files with an index. In
 
 ## Site Skills
 
-Built-in playbooks for common platforms:
+### Included
+
+Two built-in site skills for common platforms:
 
 ```javascript
 // GitHub (API-first, no browser needed)
@@ -268,56 +318,41 @@ const repo = await reach.sites.github.getRepoInfo('Potdealer', 'exoskeletons');
 const issues = await reach.sites.github.listIssues('Potdealer', 'exoskeletons');
 const code = await reach.sites.github.search('ERC-6551', 'code');
 
-// Upwork (browser + CAPTCHA solving)
-await reach.sites.upwork.login();
-const jobs = await reach.sites.upwork.searchJobs('solidity audit');
-const details = await reach.sites.upwork.readJobDetails(jobUrl);
-
-// Code4rena
-const audits = await reach.sites.code4rena.getActiveAudits();
-await reach.sites.code4rena.submitFinding(slug, { title, severity, description });
-
-// Immunefi
-const programs = await reach.sites.immunefi.listPrograms({ sort: 'reward' });
-const scope = await reach.sites.immunefi.readProgram('uniswap');
+// Exoskeletons (onchain — reads NFT data, reputation, ELO)
+const profile = await reach.sites.exoskeletons.getProfile(tokenId);
+const reputation = await reach.sites.exoskeletons.getReputation(tokenId);
+const elo = await reach.sites.exoskeletons.getELO(tokenId);
 ```
 
-## Router
+### Write Your Own
 
-The router picks the optimal interaction layer for each task:
-
-```
-Priority: API > HTTP > Browser > Vision
-```
+Copy `src/sites/example.js` as a template. Each site skill exports functions for login, search, form submission, and page reading. Drop your file in `src/sites/` and it gets picked up by the router.
 
 ```javascript
-// Auto-route
-const plan = reach.route({ type: 'read', url: 'https://api.github.com/repos/...' });
-// { primitive: 'fetch', layer: 'api', reason: 'Known API for api.github.com' }
+// src/sites/my-platform.js
+export const name = 'my-platform';
+export const domain = 'my-platform.com';
 
-// Teach the router about new sites
-reach.learnSite('https://myapp.com', { needsJS: true, needsAuth: true });
-
-// Execute through router
-await reach.execute({ type: 'read', url: 'https://myapp.com/dashboard' });
+export async function login(reach, credentials) { /* ... */ }
+export async function search(reach, query) { /* ... */ }
 ```
 
-## Natural Language
+Private site skills go in `private-sites/` (gitignored).
 
-Parse and execute commands without code:
+## CAPTCHA Solving
+
+Reach handles CAPTCHAs automatically during browser interactions via [CapSolver](https://www.capsolver.com/). Supports reCAPTCHA v2/v3, hCaptcha, and FunCaptcha.
 
 ```javascript
-// Parse only
-const plan = reach.parseCommand('search upwork for solidity jobs');
-// { primitive: 'site', method: 'search', site: 'upwork', params: { query: 'solidity jobs' } }
+// Automatic — CAPTCHA solving kicks in during authenticate() and act()
+await reach.authenticate('upwork', 'login', credentials);
 
-// Parse and execute
-const result = await reach.do('go to github');
-const result2 = await reach.do('send 0.01 ETH to 0x1234...');
-const result3 = await reach.do('watch api.coingecko.com every 60s');
+// Manual
+import { solveCaptcha } from './src/primitives/captcha.js';
+const token = await solveCaptcha({ type: 'recaptchav2', sitekey: '...', url: '...' });
 ```
 
-Supported patterns: `go to`, `search X for Y`, `click`, `type`, `email`, `send`, `watch`, `remember`, `recall`, `screenshot`, `login to`.
+Requires `CAPSOLVER_API_KEY` in `.env`.
 
 ## Session Recording
 
@@ -354,9 +389,58 @@ import { saveForm, recallForm, listForms } from './src/utils/form-memory.js';
 saveForm('https://example.com/apply', [{ name: 'email', value: 'ollie@exoagent.xyz' }]);
 ```
 
+## Error Recovery
+
+When an interaction fails, Reach tries 5 strategies before giving up:
+
+1. **Selector** — CSS selector match
+2. **Text** — visible text content match
+3. **Role** — ARIA role lookup
+4. **Aria-label** — accessibility label match
+5. **Coordinates** — pixel position click as last resort
+
+This means `act()` calls are resilient to minor DOM changes across page versions.
+
+## Router
+
+The router picks the optimal interaction layer for each task:
+
+```
+Priority: API > HTTP > Browser > Vision
+```
+
+```javascript
+// Auto-route
+const plan = reach.route({ type: 'read', url: 'https://api.github.com/repos/...' });
+// { primitive: 'fetch', layer: 'api', reason: 'Known API for api.github.com' }
+
+// Teach the router about new sites
+reach.learnSite('https://myapp.com', { needsJS: true, needsAuth: true });
+
+// Execute through router
+await reach.execute({ type: 'read', url: 'https://myapp.com/dashboard' });
+```
+
+## Natural Language
+
+Parse and execute commands without code:
+
+```javascript
+// Parse only
+const plan = reach.parseCommand('search github for solidity jobs');
+// { primitive: 'site', method: 'search', site: 'github', params: { query: 'solidity jobs' } }
+
+// Parse and execute
+const result = await reach.do('go to github');
+const result2 = await reach.do('send 0.01 ETH to 0x1234...');
+const result3 = await reach.do('watch api.coingecko.com every 60s');
+```
+
+Supported patterns: `go to`, `search X for Y`, `click`, `type`, `email`, `send`, `watch`, `remember`, `recall`, `screenshot`, `login to`.
+
 ## Webhook Server
 
-Listen for incoming webhooks:
+Listen for incoming webhooks (email, GitHub events, Stripe, etc.):
 
 ```javascript
 import { WebhookServer } from './src/utils/webhook-server.js';
@@ -368,7 +452,22 @@ await server.start();
 ```
 
 ```bash
+# Standalone
+node src/webhook-start.js
+
+# CLI
 node src/cli.js webhook --port 8430 --on /github --on /stripe
+```
+
+## Exoskeleton Identity
+
+Reach integrates with [Exoskeletons](https://exoagent.xyz) for onchain agent identity. Middleware can gate access by NFT ownership, reputation score, or ELO rating.
+
+```javascript
+import { exoIdentityMiddleware } from './src/utils/exo-identity.js';
+
+// Require caller to own an Exoskeleton
+const middleware = exoIdentityMiddleware({ requireExo: true, minReputation: 10 });
 ```
 
 ## MCP Server
@@ -411,7 +510,7 @@ node src/cli.js learn <url> [--needsJS] [--needsAuth]
 
 # Natural language
 node src/cli.js do "go to github"
-node src/cli.js parse "search upwork for solidity"
+node src/cli.js parse "search github for solidity"
 
 # Recording
 node src/cli.js replay [session-file]
@@ -440,8 +539,6 @@ node src/cli.js export-instructions [chrome|firefox]
 | `RESEND_API_KEY` | For email | Resend API key (send from @exoagent.xyz or @mfer.one) |
 | `CAPSOLVER_API_KEY` | For CAPTCHA | CapSolver API key |
 | `GITHUB_TOKEN` | For GitHub API | GitHub personal access token |
-| `UPWORK_EMAIL` | For Upwork | Upwork login email |
-| `UPWORK_PASSWORD` | For Upwork | Upwork login password |
 
 ## License
 
